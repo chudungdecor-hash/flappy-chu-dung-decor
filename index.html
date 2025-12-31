@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Flappy Chú Dũng Decor</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#70c5ce">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <style>
+    :root { color-scheme: light dark; }
+    body{
+      margin:0; height:100vh; display:grid; place-items:center;
+      background:#111;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      user-select:none; -webkit-user-select:none;
+    }
+    .wrap{ display:grid; gap:10px; justify-items:center; }
+    canvas{
+      width:min(92vw, 420px);
+      height:auto;
+      border-radius:14px;
+      box-shadow:0 14px 40px rgba(0,0,0,.35);
+      background: linear-gradient(#70c5ce,#b2dfdb);
+      touch-action: manipulation;
+    }
+    .hint{
+      color:#ddd; font-size:13px; opacity:.9; text-align:center; line-height:1.35;
+    }
+    .hint b{ color:#fff; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <canvas id="game" width="400" height="600"></canvas>
+    <div class="hint">
+      <b>Space</b>/<b>Click</b>/<b>Tap</b> để bay • <b>P</b> để Pause • Khi thua bấm <b>Space</b> hoặc <b>Tap</b> để chơi lại
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  // ====== ASSETS (ảnh + âm) ======
+  const IMG = {
+    up:   "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/sprites/yellowbird-upflap.png",
+    mid:  "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/sprites/yellowbird-midflap.png",
+    down: "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/sprites/yellowbird-downflap.png",
+    pipe: "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/sprites/pipe-green.png",
+  };
+
+  const SND = {
+    flap:  "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/audio/wing.wav",
+    point: "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/audio/point.wav",
+    hit:   "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/audio/hit.wav",
+  };
+
+  function loadImage(src){
+    return new Promise((resolve) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => resolve(im); // vẫn resolve để game không chết
+      im.src = src;
+    });
+  }
+
+  // iOS/Chrome cần user gesture mới play được -> ta gọi play khi input
+  function makeSound(src){
+    const a = new Audio(src);
+    a.preload = "auto";
+    return a;
+  }
+  const sndFlap = makeSound(SND.flap);
+  const sndPoint = makeSound(SND.point);
+  const sndHit = makeSound(SND.hit);
+
+  function playSound(a){
+    try{
+      a.currentTime = 0;
+      a.play();
+    }catch(_){}
+  }
+
+  // ====== CONFIG ======
+  const W = canvas.width, H = canvas.height;
+  const GROUND_Y = H - 12; // chỉ để giới hạn rơi, không vẽ đất
+  const PIPE_W = 52;
+  const PIPE_GAP = 150;
+  const PIPE_SPEED = 2.2;
+  const PIPE_SPAWN_EVERY = 120; // frames
+
+  const GRAVITY = 0.5;
+  const JUMP = -8;
+
+  // ====== GAME STATE ======
+  const State = Object.freeze({
+    MENU: "menu",
+    PLAYING: "playing",
+    PAUSED: "paused",
+    DEAD: "dead",
+  });
+
+  let state = State.MENU;
+
+  let bird, pipes, frame, score, best;
+  best = Number(localStorage.getItem("best_flappy_chudung") || 0);
+
+  // death fx
+  let shakeFrames = 0;
+  let flashFrames = 0;
+
+  // bird anim
+  let birdFrames = []; // 3 images
+  let birdAnimTick = 0;
+
+  function resetRun(){
+    bird = { x: 110, y: 240, vy: 0, size: 34 };
+    pipes = [];
+    frame = 0;
+    score = 0;
+    shakeFrames = 0;
+    flashFrames = 0;
+  }
+
+  function startGame(){
+    resetRun();
+    state = State.PLAYING;
+  }
+
+  function pauseToggle(){
+    if(state === State.PLAYING) state = State.PAUSED;
+    else if(state === State.PAUSED) state = State.PLAYING;
+  }
+
+  function spawnPipe(){
+    const topMin = 60;
+    const topMax = 340; // để vẫn có chỗ dưới
+    const top = Math.floor(topMin + Math.random() * (topMax - topMin));
+    pipes.push({ x: W + 10, top, passed: false });
+  }
+
+  function die(){
+    if(state === State.DEAD) return;
+    state = State.DEAD;
+
+    playSound(sndHit);
+    shakeFrames = 14;
+    flashFrames = 10;
+
+    if(score > best){
+      best = score;
+      localStorage.setItem("best_flappy_chudung", String(best));
+    }
+  }
+
+  function flap(){
+    // MENU -> start
+    if(state === State.MENU){
+      startGame();
+      bird.vy = JUMP;
+      playSound(sndFlap);
+      return;
+    }
+    // DEAD -> restart
+    if(state === State.DEAD){
+      startGame();
+      bird.vy = JUMP;
+      playSound(sndFlap);
+      return;
+    }
+    // PAUSED -> ignore flap (hoặc bạn muốn resume + flap cũng được)
+    if(state === State.PAUSED){
+      // resume + flap cho “đã”
+      state = State.PLAYING;
+      bird.vy = JUMP;
+      playSound(sndFlap);
+      return;
+    }
+    // PLAYING
+    bird.vy = JUMP;
+    playSound(sndFlap);
+  }
+
+  // ====== INPUT ======
+  window.addEventListener("keydown", (e) => {
+    if(e.code === "Space"){ e.preventDefault(); flap(); }
+    if(e.key.toLowerCase() === "p"){ pauseToggle(); }
+  });
+  window.addEventListener("mousedown", () => flap());
+  window.addEventListener("touchstart", (e) => { e.preventDefault(); flap(); }, { passive:false });
+
+  // ====== UPDATE ======
+  function update(){
+    if(state === State.PAUSED || state === State.MENU) {
+      // chim bob nhẹ ở menu
+      if(state === State.MENU){
+        frame++;
+        birdAnimTick++;
+        if(!bird) resetRun();
+        bird.y = 240 + Math.sin(frame * 0.05) * 10;
+      }
+      return;
+    }
+
+    if(state !== State.PLAYING){
+      // DEAD: để chim rơi nhẹ xuống cho tự nhiên
+      if(bird){
+        bird.vy += GRAVITY;
+        bird.y += bird.vy;
+        if(bird.y + bird.size > GROUND_Y){
+          bird.y = GROUND_Y - bird.size;
+          bird.vy = 0;
+        }
+      }
+      return;
+    }
+
+    frame++;
+    birdAnimTick++;
+
+    // bird physics
+    bird.vy += GRAVITY;
+    if(bird.vy > 12) bird.vy = 12;
+    bird.y += bird.vy;
+
+    // spawn pipes
+    if(frame % PIPE_SPAWN_EVERY === 0) spawnPipe();
+
+    // move pipes + collision + score
+    for(const p of pipes){
+      p.x -= PIPE_SPEED;
+
+      // score (khi qua ống)
+      if(!p.passed && p.x + PIPE_W < bird.x){
+        p.passed = true;
+        score++;
+        playSound(sndPoint);
+      }
+
+      // collision (AABB đơn giản)
+      const hitX = bird.x + bird.size > p.x && bird.x < p.x + PIPE_W;
+      const hitY = (bird.y < p.top) || (bird.y + bird.size > p.top + PIPE_GAP);
+      if(hitX && hitY) die();
+    }
+
+    // cleanup pipes
+    pipes = pipes.filter(p => p.x + PIPE_W > -30);
+
+    // ground / ceiling
+    if(bird.y + bird.size > GROUND_Y) die();
+    if(bird.y < -30) bird.y = -30;
+
+    // fx countdown
+    if(shakeFrames > 0) shakeFrames--;
+    if(flashFrames > 0) flashFrames--;
+  }
+
+  // ====== DRAW HELPERS ======
+  function drawBackground(){
+    // nền gradient
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#70c5ce");
+    g.addColorStop(1,"#b2dfdb");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    // mây đơn giản
+    ctx.fillStyle = "rgba(255,255,255,.75)";
+    const t = frame || 0;
+    for(let i=0;i<5;i++){
+      const x = ((t*0.6) + i*150) % (W+220) - 220;
+      const y = 70 + (i%2)*35;
+      ctx.beginPath();
+      ctx.ellipse(x+50, y, 44, 22, 0, 0, Math.PI*2);
+      ctx.ellipse(x+90, y+10, 50, 26, 0, 0, Math.PI*2);
+      ctx.ellipse(x+130, y, 44, 22, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  function drawPipes(pipeImg){
+    for(const p of pipes){
+      // top (flip)
+      ctx.save();
+      ctx.translate(p.x + PIPE_W, p.top);
+      ctx.rotate(Math.PI);
+      ctx.drawImage(pipeImg, 0, 0, PIPE_W, p.top);
+      ctx.restore();
+
+      // bottom
+      ctx.drawImage(pipeImg, p.x, p.top + PIPE_GAP, PIPE_W, H);
+    }
+  }
+
+  function drawBird(){
+    const idx = Math.floor((birdAnimTick / 6) % 3);
+    const img = birdFrames[idx] || birdFrames[1];
+
+    // tilt theo vy
+    const tilt = Math.max(-0.6, Math.min(1.0, bird.vy / 10));
+
+    ctx.save();
+    ctx.translate(bird.x + bird.size/2, bird.y + bird.size/2);
+    ctx.rotate(tilt);
+    ctx.drawImage(img, -bird.size/2, -bird.size/2, bird.size, bird.size);
+    ctx.restore();
+  }
+
+  function drawHUD(){
+    // score + best
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,.25)";
+    ctx.fillRect(10, 10, 170, 56);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 18px system-ui";
+    ctx.fillText(`Score: ${score ?? 0}`, 20, 35);
+    ctx.font = "14px system-ui";
+    ctx.fillText(`Best: ${best}`, 20, 58);
+    ctx.restore();
+
+    // watermark “Chú Dũng Decor” đẹp
+    ctx.save();
+    ctx.font = "18px 'Segoe Script', 'Comic Sans MS', cursive";
+    ctx.textAlign = "right";
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.lineWidth = 3;
+    ctx.strokeText("Chú Dũng Decor", 385, 580);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("Chú Dũng Decor", 385, 580);
+    ctx.restore();
+  }
+
+  function drawCenterCard(title, subtitle){
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,.48)";
+    ctx.fillRect(40, 220, W-80, 150);
+    ctx.strokeStyle = "rgba(255,255,255,.25)";
+    ctx.strokeRect(40, 220, W-80, 150);
+
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = "bold 24px system-ui";
+    ctx.fillText(title, W/2, 270);
+
+    ctx.font = "14px system-ui";
+    ctx.fillText(subtitle, W/2, 300);
+
+    ctx.font = "12px system-ui";
+    ctx.fillText("Space/Click/Tap để bay • P để Pause", W/2, 330);
+
+    ctx.textAlign = "left";
+    ctx.restore();
+  }
+
+  function drawFX(){
+    // flash
+    if(flashFrames > 0){
+      const alpha = Math.min(0.35, flashFrames / 20);
+      ctx.save();
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.fillRect(0,0,W,H);
+      ctx.restore();
+    }
+  }
+
+  function render(pipeImg){
+    // shake camera khi chết
+    let dx = 0, dy = 0;
+    if(shakeFrames > 0){
+      dx = (Math.random() - 0.5) * 10;
+      dy = (Math.random() - 0.5) * 10;
+    }
+
+    ctx.save();
+    ctx.translate(dx, dy);
+
+    drawBackground();
+    if(pipes?.length) drawPipes(pipeImg);
+    if(bird) drawBird();
+    drawHUD();
+
+    if(state === State.MENU){
+      drawCenterCard("Flappy Decor", "Chạm / Space để bắt đầu");
+    } else if(state === State.PAUSED){
+      drawCenterCard("TẠM DỪNG", "Nhấn P để tiếp tục • Chạm/Space cũng tiếp tục + bay");
+    } else if(state === State.DEAD){
+      drawCenterCard("GAME OVER", `Điểm: ${score} • Best: ${best} • Chạm/Space để chơi lại`);
+    }
+
+    ctx.restore();
+    drawFX();
+  }
+
+  // ====== MAIN LOOP ======
+  async function boot(){
+    // preload images
+    birdFrames = await Promise.all([loadImage(IMG.up), loadImage(IMG.mid), loadImage(IMG.down)]);
+    const pipeImg = await loadImage(IMG.pipe);
+
+    resetRun();
+    state = State.MENU;
+
+    function loop(){
+      update();
+      render(pipeImg);
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  boot();
+
+  // ====== SERVICE WORKER (PWA) ======
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  }
+})();
+</script>
+</body>
+</html>
