@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flappy Chú Dũng Decor</title>
 
 <style>
@@ -13,12 +13,11 @@
     justify-content:center;
     align-items:center;
     height:100vh;
-    font-family:system-ui,-apple-system,Segoe UI,Roboto;
-    user-select:none;
+    font-family:Arial, sans-serif;
   }
   canvas{
-    background:linear-gradient(#70c5ce,#b2dfdb);
-    border-radius:14px;
+    background:#70c5ce;
+    border-radius:12px;
   }
 </style>
 </head>
@@ -27,141 +26,129 @@
 <canvas id="game" width="400" height="600"></canvas>
 
 <script>
-(() => {
-  const canvas = document.getElementById("game");
-  const ctx = canvas.getContext("2d");
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-  /* ========= LOGO (THAY LINK LOGO CỦA BẠN Ở ĐÂY) ========= */
-  const logoImg = new Image();
-  logoImg.src = "https://i.imgur.com/8QfQ9ZC.png"; // đổi thành logo Chú Dũng Decor của bạn
+/* ===== LOGO (THAY LINK LOGO CỦA BẠN) ===== */
+const birdImg = new Image();
+birdImg.src = "https://i.imgur.com/8QfQ9ZC.png";
 
-  /* ========= ASSETS ========= */
-  const pipeImg = new Image();
-  pipeImg.src =
-    "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/sprites/pipe-green.png";
+/* ===== PIPE ===== */
+const pipeImg = new Image();
+pipeImg.src =
+  "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/sprites/pipe-green.png";
 
-  const sndFlap = new Audio("https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/audio/wing.wav");
-  const sndPoint = new Audio("https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/audio/point.wav");
-  const sndHit   = new Audio("https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/audio/hit.wav");
+/* ===== LEVEL ===== */
+const LEVELS = {
+  EASY:   { gravity:0.4,  jump:-7.5, gap:220, speed:1.6 },
+  NORMAL: { gravity:0.45, jump:-7,   gap:190, speed:1.9 },
+  HARD:   { gravity:0.5,  jump:-6.5, gap:160, speed:2.2 }
+};
+let level = "NORMAL";
 
-  sndFlap.volume  = 0.25;
-  sndPoint.volume = 0.35;
-  sndHit.volume   = 0.4;
+/* ===== GAME VAR ===== */
+const W = canvas.width;
+const H = canvas.height;
+const PIPE_W = 52;
 
-  function playSound(a){
-    try{ a.currentTime = 0; a.play(); }catch(e){}
+let bird, pipes, score, best, frame;
+let state = "MENU";
+
+best = Number(localStorage.getItem("best_flappy_chudung") || 0);
+
+/* ===== RESET ===== */
+function reset(){
+  bird = { x:100, y:250, v:0, size:38 };
+  pipes = [];
+  score = 0;
+  frame = 0;
+  state = "PLAY";
+}
+
+/* ===== INPUT ===== */
+function flap(){
+  if(state === "MENU" || state === "DEAD"){
+    reset();
   }
+  bird.v = LEVELS[level].jump;
+}
 
-  /* ========= LEVEL ========= */
-  const LEVELS = {
-    EASY:   { gravity:0.42, jump:-7.5, gap:210, speed:1.8 },
-    NORMAL: { gravity:0.45, jump:-7.0, gap:185, speed:2.0 },
-    HARD:   { gravity:0.50, jump:-6.5, gap:155, speed:2.3 }
-  };
-  let level = "NORMAL";
+document.addEventListener("keydown", e=>{
+  if(e.code === "Space") flap();
+  if(e.key === "1") level = "EASY";
+  if(e.key === "2") level = "NORMAL";
+  if(e.key === "3") level = "HARD";
+});
+document.addEventListener("mousedown", flap);
 
-  /* ========= CONST ========= */
-  const W = canvas.width;
-  const H = canvas.height;
-  const PIPE_WIDTH = 52;
+/* ===== PIPE ===== */
+function spawnPipe(){
+  const top = Math.random()*220 + 60;
+  pipes.push({ x:W, top, passed:false });
+}
 
-  /* ========= STATE ========= */
-  const State = { MENU:0, PLAY:1, DEAD:2 };
-  let state = State.MENU;
+/* ===== UPDATE ===== */
+function update(){
+  if(state !== "PLAY") return;
 
-  let bird, pipes, score, best, frame;
-  best = Number(localStorage.getItem("best_flappy_chudung") || 0);
+  frame++;
+  bird.v += LEVELS[level].gravity;
+  bird.y += bird.v;
 
-  function resetGame(){
-    bird = { x:110, y:240, vy:0, size:40 };
-    pipes = [];
-    score = 0;
-    frame = 0;
-    state = State.PLAY;
-  }
+  if(frame % 150 === 0) spawnPipe();
 
-  function spawnPipe(){
-    const top = Math.random()*220 + 70;
-    pipes.push({ x:W+10, top, passed:false });
-  }
+  for(const p of pipes){
+    p.x -= LEVELS[level].speed;
 
-  function die(){
-    if(state === State.DEAD) return;
-    state = State.DEAD;
-    playSound(sndHit);
-
-    if(score > best){
-      best = score;
-      localStorage.setItem("best_flappy_chudung", best);
+    if(!p.passed && p.x + PIPE_W < bird.x){
+      p.passed = true;
+      score++;
     }
-  }
 
-  function flap(){
-    if(state === State.MENU || state === State.DEAD){
-      resetGame();
-      bird.vy = LEVELS[level].jump;
-      playSound(sndFlap);
-      return;
-    }
-    bird.vy = LEVELS[level].jump;
-    playSound(sndFlap);
-  }
+    const hitX = bird.x + bird.size > p.x && bird.x < p.x + PIPE_W;
+    const hitY =
+      bird.y < p.top ||
+      bird.y + bird.size > p.top + LEVELS[level].gap;
 
-  /* ========= INPUT ========= */
-  window.addEventListener("keydown", e=>{
-    if(e.code === "Space"){ e.preventDefault(); flap(); }
-    if(e.key === "1") level = "EASY";
-    if(e.key === "2") level = "NORMAL";
-    if(e.key === "3") level = "HARD";
-    if(e.key === "S" && state === State.DEAD) shareScore();
-  });
-  window.addEventListener("mousedown", flap);
-  window.addEventListener("touchstart", e=>{
-    e.preventDefault(); flap();
-  },{passive:false});
-
-  /* ========= UPDATE ========= */
-  function update(){
-    if(state === State.MENU) return;
-
-    if(state === State.DEAD){
-      bird.vy += LEVELS[level].gravity;
-      bird.y += bird.vy;
-      if(bird.y + bird.size > H){
-        bird.y = H - bird.size;
-        bird.vy = 0;
+    if(hitX && hitY){
+      state = "DEAD";
+      if(score > best){
+        best = score;
+        localStorage.setItem("best_flappy_chudung", best);
       }
-      return;
     }
-
-    frame++;
-
-    bird.vy += LEVELS[level].gravity;
-    bird.y += bird.vy;
-
-    if(frame % 140 === 0) spawnPipe();
-
-    for(const p of pipes){
-      p.x -= LEVELS[level].speed;
-
-      if(!p.passed && p.x + PIPE_WIDTH < bird.x){
-        p.passed = true;
-        score++;
-        playSound(sndPoint);
-      }
-
-      const hitX = bird.x + bird.size > p.x && bird.x < p.x + PIPE_WIDTH;
-      const hitY = bird.y < p.top || bird.y + bird.size > p.top + LEVELS[level].gap;
-      if(hitX && hitY) die();
-    }
-
-    pipes = pipes.filter(p => p.x + PIPE_WIDTH > -30);
-
-    if(bird.y + bird.size > H) die();
   }
 
-  /* ========= DRAW ========= */
-  function drawBird(){
+  pipes = pipes.filter(p => p.x + PIPE_W > 0);
+
+  if(bird.y + bird.size > H){
+    state = "DEAD";
+  }
+}
+
+/* ===== DRAW ===== */
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  // pipes
+  for(const p of pipes){
+    ctx.save();
+    ctx.translate(p.x + PIPE_W, p.top);
+    ctx.rotate(Math.PI);
+    ctx.drawImage(pipeImg,0,0,PIPE_W,p.top);
+    ctx.restore();
+
+    ctx.drawImage(
+      pipeImg,
+      p.x,
+      p.top + LEVELS[level].gap,
+      PIPE_W,
+      H
+    );
+  }
+
+  // bird (logo)
+  if(bird){
     ctx.save();
     ctx.beginPath();
     ctx.arc(
@@ -171,74 +158,42 @@
       0, Math.PI*2
     );
     ctx.clip();
-    ctx.drawImage(logoImg, bird.x, bird.y, bird.size, bird.size);
+    ctx.drawImage(birdImg, bird.x, bird.y, bird.size, bird.size);
     ctx.restore();
   }
 
-  function draw(){
-    ctx.clearRect(0,0,W,H);
+  // HUD
+  ctx.fillStyle="#000";
+  ctx.font="18px Arial";
+  ctx.fillText("Score: "+score,10,30);
+  ctx.font="14px Arial";
+  ctx.fillText("Best: "+best,10,50);
+  ctx.fillText("Level: "+level,290,30);
 
-    for(const p of pipes){
-      ctx.save();
-      ctx.translate(p.x+PIPE_WIDTH, p.top);
-      ctx.rotate(Math.PI);
-      ctx.drawImage(pipeImg,0,0,PIPE_WIDTH,p.top);
-      ctx.restore();
-      ctx.drawImage(pipeImg,p.x,p.top+LEVELS[level].gap,PIPE_WIDTH,H);
-    }
+  // watermark
+  ctx.textAlign="right";
+  ctx.font="16px cursive";
+  ctx.fillText("Chú Dũng Decor",390,585);
+  ctx.textAlign="left";
 
-    if(bird) drawBird();
-
-    ctx.fillStyle="#000";
-    ctx.font="20px Arial";
-    ctx.fillText("Score: "+score,10,30);
-    ctx.font="14px Arial";
-    ctx.fillText("Best: "+best,10,50);
-    ctx.fillText("Level: "+level,280,30);
-
-    ctx.font="16px 'Segoe Script','Comic Sans MS',cursive";
-    ctx.textAlign="right";
-    ctx.fillText("Chú Dũng Decor",390,585);
-    ctx.textAlign="left";
-
-    if(state === State.MENU){
-      ctx.font="18px Arial";
-      ctx.fillText("1 Easy   2 Normal   3 Hard",85,280);
-      ctx.fillText("Tap / Space để bắt đầu",105,320);
-    }
-
-    if(state === State.DEAD){
-      ctx.font="22px Arial";
-      ctx.fillText("GAME OVER",135,270);
-      ctx.font="16px Arial";
-      ctx.fillText("Tap / Space để chơi lại",95,305);
-      ctx.fillText("Nhấn S để chia sẻ điểm",105,335);
-    }
+  if(state === "MENU"){
+    ctx.fillText("1 Easy   2 Normal   3 Hard",90,280);
+    ctx.fillText("Click / Space để chơi",120,320);
   }
 
-  function shareScore(){
-    const text =
-`🎮 Flappy Chú Dũng Decor
-🏆 Điểm của tôi: ${score}
-🔥 Level: ${level}
-
-Bạn phá được không?`;
-
-    if(navigator.share){
-      navigator.share({ text });
-    }else{
-      navigator.clipboard.writeText(text);
-      alert("Đã copy điểm – gửi cho bạn bè nhé!");
-    }
+  if(state === "DEAD"){
+    ctx.fillText("GAME OVER",135,280);
+    ctx.fillText("Click / Space để chơi lại",95,320);
   }
+}
 
-  function loop(){
-    update();
-    draw();
-    requestAnimationFrame(loop);
-  }
-  loop();
-})();
+/* ===== LOOP ===== */
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
 </script>
 </body>
 </html>
