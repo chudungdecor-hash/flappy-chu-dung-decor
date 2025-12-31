@@ -6,19 +6,19 @@
 <title>Flappy Chú Dũng Decor</title>
 
 <style>
-  body{
-    margin:0;
-    background:#111;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    height:100vh;
-    font-family:Arial, sans-serif;
-  }
-  canvas{
-    background:#70c5ce;
-    border-radius:12px;
-  }
+body{
+  margin:0;
+  background:#111;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
+  font-family:Arial, sans-serif;
+}
+canvas{
+  background:#70c5ce;
+  border-radius:12px;
+}
 </style>
 </head>
 <body>
@@ -29,16 +29,29 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-/* ===== LOGO (THAY LINK LOGO CỦA BẠN) ===== */
-const birdImg = new Image();
-birdImg.src = "https://i.imgur.com/8QfQ9ZC.png";
+/* ================== LOAD ASSETS ================== */
+let assetsLoaded = 0;
+const TOTAL_ASSETS = 2;
 
-/* ===== PIPE ===== */
+function assetLoaded(){
+  assetsLoaded++;
+  if(assetsLoaded === TOTAL_ASSETS){
+    startGame();
+  }
+}
+
+/* LOGO (CHIM) */
+const birdImg = new Image();
+birdImg.onload = assetLoaded;
+birdImg.src = "https://i.imgur.com/8QfQ9ZC.png"; // đổi logo của bạn nếu muốn
+
+/* PIPE */
 const pipeImg = new Image();
+pipeImg.onload = assetLoaded;
 pipeImg.src =
   "https://raw.githubusercontent.com/sourabhv/FlapPyBird/master/assets/sprites/pipe-green.png";
 
-/* ===== LEVEL ===== */
+/* ================== GAME CONFIG ================== */
 const LEVELS = {
   EASY:   { gravity:0.4,  jump:-7.5, gap:220, speed:1.6 },
   NORMAL: { gravity:0.45, jump:-7,   gap:190, speed:1.9 },
@@ -46,17 +59,16 @@ const LEVELS = {
 };
 let level = "NORMAL";
 
-/* ===== GAME VAR ===== */
 const W = canvas.width;
 const H = canvas.height;
 const PIPE_W = 52;
 
+/* ================== GAME STATE ================== */
 let bird, pipes, score, best, frame;
 let state = "MENU";
-
 best = Number(localStorage.getItem("best_flappy_chudung") || 0);
 
-/* ===== RESET ===== */
+/* ================== INIT ================== */
 function reset(){
   bird = { x:100, y:250, v:0, size:38 };
   pipes = [];
@@ -65,7 +77,7 @@ function reset(){
   state = "PLAY";
 }
 
-/* ===== INPUT ===== */
+/* ================== INPUT ================== */
 function flap(){
   if(state === "MENU" || state === "DEAD"){
     reset();
@@ -81,13 +93,13 @@ document.addEventListener("keydown", e=>{
 });
 document.addEventListener("mousedown", flap);
 
-/* ===== PIPE ===== */
+/* ================== PIPE ================== */
 function spawnPipe(){
   const top = Math.random()*220 + 60;
   pipes.push({ x:W, top, passed:false });
 }
 
-/* ===== UPDATE ===== */
+/* ================== UPDATE ================== */
 function update(){
   if(state !== "PLAY") return;
 
@@ -126,7 +138,7 @@ function update(){
   }
 }
 
-/* ===== DRAW ===== */
+/* ================== DRAW ================== */
 function draw(){
   ctx.clearRect(0,0,W,H);
 
@@ -147,7 +159,7 @@ function draw(){
     );
   }
 
-  // bird (logo)
+  // bird
   if(bird){
     ctx.save();
     ctx.beginPath();
@@ -187,13 +199,22 @@ function draw(){
   }
 }
 
-/* ===== LOOP ===== */
+/* ================== LOOP ================== */
 function loop(){
   update();
   draw();
   requestAnimationFrame(loop);
 }
-loop();
+
+/* ================== START ================== */
+function startGame(){
+  loop();
+}
+
+/* ================== LOADING SCREEN ================== */
+ctx.fillStyle="#fff";
+ctx.font="20px Arial";
+ctx.fillText("Loading...",150,300);
 </script>
 </body>
 </html>
